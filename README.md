@@ -18,15 +18,14 @@ Train Algorithms (config names):
 - VDN（vdn）
 - QMIX（qmix)  
 - WQMIX（cw_qmix，ow_qmix）
-- Qatten（qatten）
-- Qtran（qtran）**x**
-- Qplex（qplex）**x**
+- Qtran（qtran）
+- Qplex（qplex）
 - MAIC（maic ，maic_qplex **x**）forked from https://github.com/mansicer/MAIC
 
 Train:
 
 ``` sh
-python main.py --config=maic --env-config=one_step_matrix_game with env_args.map_name=one_step_matrix_game
+# python main.py --config=maic --env-config=one_step_matrix_game with env_args.map_name=one_step_matrix_game
 python q_family.py
 ```
 #### Matrix
@@ -63,12 +62,6 @@ predicted_values = [[8.00, -11.73, -11.73],
 predicted_values = [[8.00, -10.62, -10.62],
                  [-10.62, -10.62, -10.62],
                  [-10.62, -10.62, -10.62]]
-```
-Qatten
-```
-predicted_values = [[-22.81, -11.45, -11.44],
-                 [-11.47, 0.00, 0.00],
-                 [-11.44, 0.00, 0.00]]
 ```
 
 Qtran

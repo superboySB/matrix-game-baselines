@@ -154,7 +154,7 @@ class MAXQLearner:
         # 0-out the targets that came from padded data
         masked_td_error = td_error * mask
 
-        # Training central Q
+        # TODO: Training central Q
         central_chosen_action_qvals = self.central_mixer(central_chosen_action_qvals_agents, batch["state"][:, :-1])
         central_td_error = (central_chosen_action_qvals - targets.detach())
         central_mask = mask.expand_as(central_td_error)
