@@ -23,9 +23,10 @@ class QFamily(nn.Module):
         self.agent_num = agent_num
         self.action_num = action_num
         self.hidden_num = hidden_num
+        self.latent_num = 8  # for MAIC
 
         # (agent_num, action_num)
-        self.individual_qs = Parameter(torch.randn(1, agent_num, action_num))
+        self.local_individual_qs = Parameter(torch.randn(1, agent_num, action_num))
 
         # matrix game没有state，所以不需要hyper net，似乎没有实现Qatten的必要
         if algo in ["vdn", "vdn_qtran"]:
@@ -33,7 +34,7 @@ class QFamily(nn.Module):
         elif algo in "weighted_vdn":
             self.w1 = Parameter(torch.randn([agent_num, 1], dtype=torch.float32))
             self.b1 = Parameter(torch.randn([1, 1], dtype=torch.float32))
-        elif algo in ["qmix", "qmix_qtran", "ow_qmix", "cw_qmix"]:
+        elif algo in ["qmix", "qmix_qtran", "ow_qmix", "cw_qmix", "qmix_maic"]:
             # (agent_num, embedding_dim)
             self.w1 = Parameter(torch.randn([agent_num, hidden_num], dtype=torch.float32))
             self.b1 = Parameter(torch.randn([1, hidden_num], dtype=torch.float32))
@@ -42,20 +43,25 @@ class QFamily(nn.Module):
             self.b2 = Parameter(torch.randn([1, 1], dtype=torch.float32))
             if algo in ["ow_qmix", "cw_qmix"]:
                 self.alpha = 0.1
-                self.central_factor = 1
+                self.central_loss_weight = 1
                 # central feed-forward net, note that state is none in matrix games
                 self.central_q_net = nn.Sequential(
                     nn.Linear(agent_num, hidden_num),
                     nn.ReLU(),
                     nn.Linear(hidden_num, 1),
                 )
-        elif algo == "qplex":
+            if algo == "qmix_maic":
+                self.msg_net = Parameter(torch.randn(1, agent_num, agent_num, action_num))  # 对角线不更新
+
+        elif algo in ["qplex", "qplex_maic"]:
             # lambda net, note that state is none in matrix games
             self.lambda_net = nn.Sequential(
                 nn.Linear(agent_num * action_num, hidden_num),
                 nn.ReLU(),
                 nn.Linear(hidden_num, agent_num),
             )
+            if algo == "qplex_maic":
+                self.msg_net = Parameter(torch.randn(1, agent_num, agent_num, action_num))
         else:
             raise NotImplementedError
 
@@ -64,10 +70,10 @@ class QFamily(nn.Module):
 
     def _init_parameters(self):
         # init individual q-value
-        init.kaiming_uniform_(self.individual_qs, a=math.sqrt(5))
+        init.kaiming_uniform_(self.local_individual_qs, a=math.sqrt(5))
         # init.uniform_(self.individual_qs, 0, 0)
         print("******************* [q_i] init q tables *******************")
-        q_print = self.individual_qs[0]  # [agent_num, action_num]
+        q_print = self.local_individual_qs[0]  # [agent_num, action_num]
         for agent_idx in range(self.agent_num):
             individual_q = q_print[agent_idx]  # [action_num]
             print("-------------- agent-{}: greedy action={} --------------".format(agent_idx,
@@ -80,16 +86,30 @@ class QFamily(nn.Module):
         assert batch_action.shape[0] == batch_size
         assert batch_action.shape[1] == self.agent_num
         assert batch_action.shape[2] == 1
+
+        # Get messages from team modeling
+        if self.algo in ["qmix_maic", "qplex_maic"]:
+            global_individual_qs = torch.zeros_like(self.local_individual_qs)
+            for j in range(self.agent_num):  # 接收方
+                for i in range(self.agent_num):  # 发送方
+                    if i == j:
+                        global_individual_qs[:, j, :] += self.local_individual_qs[:, j, :]
+                    else:
+                        global_individual_qs[:, j, :] += self.msg_net[:, i, j, :]
+        else:
+            global_individual_qs = self.local_individual_qs
+
         # Get action values (batch_size, agent_num)
-        selected_individual_qs = torch.gather(self.individual_qs.expand(batch_size, self.agent_num, self.action_num),
-                                              dim=2, index=batch_action.long()).squeeze(2)  # Remove the last dim
+        selected_individual_qs = torch.gather(
+            global_individual_qs.expand(batch_size, self.agent_num, self.action_num),
+            dim=2, index=batch_action.long()).squeeze(2)  # Remove the last dim
 
         # Calculate q_total
         if self.algo in ["vdn", "vdn_qtran"]:
             q_tot = selected_individual_qs.sum(dim=1, keepdim=True)
         elif self.algo == "weighted_vdn":
             q_tot = torch.mm(selected_individual_qs, torch.abs(self.w1)) + self.b1
-        elif self.algo in ["qmix", "qmix_qtran", "ow_qmix", "cw_qmix"]:
+        elif self.algo in ["qmix", "qmix_qtran", "ow_qmix", "cw_qmix", "qmix_maic"]:
             hidden = F.elu(torch.mm(selected_individual_qs, torch.abs(self.w1)) + self.b1)
             q_tot = torch.mm(hidden, torch.abs(self.w2)) + self.b2
             if self.algo in ["ow_qmix", "cw_qmix"]:
@@ -98,17 +118,16 @@ class QFamily(nn.Module):
                 if self.algo == "ow_qmix":
                     w_s = torch.where(q_tot < q_joint, torch.ones_like(q_tot), w_s)
                 else:
-                    q_upper, _ = self.individual_qs.max(dim=2, keepdim=False)
+                    q_upper, _ = global_individual_qs.max(dim=2, keepdim=False)
                     q_central_upper = self.central_q_net(q_upper)
                     # greedy actions
-                    individual_greedy_action = self.individual_qs.max(dim=2, keepdim=True)[1]
+                    individual_greedy_action = global_individual_qs.max(dim=2, keepdim=True)[1]
                     # the sample in current batch in which the actions == greedy actions
                     max_point_mask = (individual_greedy_action == batch_action).long().sum(axis=1) == self.agent_num
-                    w_s = torch.where((q_joint>q_central_upper) | max_point_mask , torch.ones_like(q_tot), w_s)
+                    w_s = torch.where((q_joint > q_central_upper) | max_point_mask, torch.ones_like(q_tot), w_s)
 
-
-        elif self.algo == "qplex":
-            q_upper, _ = self.individual_qs.max(dim=2, keepdim=False)
+        elif self.algo in ["qplex", "qplex_maic"]:
+            q_upper, _ = global_individual_qs.max(dim=2, keepdim=False)
             # (batch_size, agent_num)
             adv = selected_individual_qs - q_upper
 
@@ -125,7 +144,7 @@ class QFamily(nn.Module):
 
         if print_log:
             print("******************* [q_i] Learned individual q tables *******************")
-            q_print = self.individual_qs[0]  # [agent_num, action_num]
+            q_print = global_individual_qs[0]  # [agent_num, action_num]
             for agent_idx in range(self.agent_num):
                 individual_q = q_print[agent_idx]  # [action_num]
                 print("-------------- agent-{}: greedy action={} --------------".format(agent_idx,
@@ -137,14 +156,15 @@ class QFamily(nn.Module):
         # Calculate loss
         if self.algo in ["vdn_qtran", "qmix_qtran"]:
             # greedy actions
-            individual_greedy_action = self.individual_qs.max(dim=2, keepdim=True)[1]
+            individual_greedy_action = global_individual_qs.max(dim=2, keepdim=True)[1]
             # the sample in current batch in which the actions == greedy actions
             max_point_mask = ((individual_greedy_action == batch_action).long().sum(axis=1) == self.agent_num).float()
             q_clip = torch.max(q_tot, q_joint).detach()  # Qtran核心： to ensure q_tot >= q_label
             loss = torch.mean(
                 max_point_mask * ((q_tot - q_joint) ** 2) + (1 - max_point_mask) * ((q_tot - q_clip) ** 2))
         if self.algo in ["ow_qmix", "cw_qmix"]:
-            loss = torch.mean(w_s * ((q_tot - q_joint) ** 2))  +  self.central_factor * torch.mean((q_central - q_joint) ** 2)
+            loss = torch.mean(w_s * ((q_tot - q_joint) ** 2)) + self.central_loss_weight * torch.mean(
+                (q_central - q_joint) ** 2)
         else:
             loss = torch.mean((q_tot - q_joint) ** 2)
         return q_tot, loss
@@ -191,20 +211,20 @@ if __name__ == "__main__":
     ### Step1: choose alg
     # algo = "vdn"
     # algo = "weighted_vdn"
-    algo = "qmix"
+    # algo = "qmix"
     # algo = "ow_qmix"
     # algo = "cw_qmix"   # consume more time than ow_qmix
     # algo = "vdn_qtran"
     # algo = "qmix_qtran"
-    # algo = "qplex"
-    # algo = "qmix_maic"  # TODO
+    algo = "qplex"
+    # algo = "qmix_maic"  # team modeling may not work in matrix games
     # algo = "qplex_maic"
 
     ### Step2: choose matrix (for convenience for representation, we flatten the matrix into a vector)
     # payoff_flatten_vector= [1, 0, 0, 1]
     # payoff_flatten_vector=[8, 3, 2, -12, -13, -14, -12, -13, -14]
-    payoff_flatten_vector = [8, -12, -12, -12, 0, 0, -12, 0, 0]
-    # payoff_flatten_vector = [8, -12, -12, -12, 6, 0, -12, 0, 6]
+    # payoff_flatten_vector = [8, -12, -12, -12, 0, 0, -12, 0, 0]
+    payoff_flatten_vector = [8, -12, -12, -12, 6, 0, -12, 0, 6]
     # payoff_flatten_vector = [20, 0, 0, 0, 12, 12, 0, 12, 12]
     # payoff_flatten_vector = [8, -12, -12, -12, 0, 0, -12, 0, 0, -12, 0, 0, 0, 0, 0, 0, 0, 0, -12, 0, 0, 0, 0, 0, 0, 0,
     #                          0]
@@ -212,7 +232,7 @@ if __name__ == "__main__":
     ### Step3: choose other parameters, note that: action_num**agent_num = |payoff-matrix|
     action_num = 3
     agent_num = 2
-    seed = 3  # fk, it is so tricky!
+    seed = 2  # fk, it is so tricky!
     round = 5000
     hidden_num = 32
 
