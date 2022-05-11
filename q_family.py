@@ -153,6 +153,14 @@ class QFamily(nn.Module):
                 print(individual_q.tolist())
                 print("--------------------------------------\n")
 
+        # get the greedy actions from each agents
+        q_print = global_individual_qs[0]
+        best_action_index=0
+        for agent_idx in range(self.agent_num):
+            individual_q = q_print[agent_idx]
+            best_action_i=individual_q.max(dim=0)[1].item()
+            best_action_index+=best_action_i*pow(action_num,agent_num-agent_idx-1)
+
         # Calculate loss
         if self.algo in ["vdn_qtran", "qmix_qtran"]:
             # greedy actions
@@ -167,7 +175,7 @@ class QFamily(nn.Module):
                 (q_central - q_joint) ** 2)
         else:
             loss = torch.mean((q_tot - q_joint) ** 2)
-        return q_tot, loss
+        return q_tot, loss, best_action_index
 
 
 def train():
@@ -185,14 +193,14 @@ def train():
     optimizer = torch.optim.Adam(params=one_step_q_network.parameters(), lr=0.01)
 
     for epoch in range(round):
-        q_tot, loss = one_step_q_network.forward(batch_size, batch_action, q_joint)
+        q_tot, loss, best_action_index = one_step_q_network.forward(batch_size, batch_action, q_joint)
         if epoch % 100 == 0:
-            print("Iter={}: MSE loss={}".format(epoch, loss.item()))
+            print(f"Iter={epoch}: MSE loss={loss.item()}, Optimal reward={q_joint[best_action_index].item()}")
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-    q_tot, _ = one_step_q_network.forward(batch_size, batch_action, q_joint, print_log=True)
+    q_tot, _ , _ = one_step_q_network.forward(batch_size, batch_action, q_joint, print_log=True)
 
     print("******************* Predicted Q_tot: *******************")
     q_print = q_tot.detach().tolist()
@@ -216,18 +224,65 @@ if __name__ == "__main__":
     # algo = "cw_qmix"   # consume more time than ow_qmix
     # algo = "vdn_qtran"
     # algo = "qmix_qtran"
-    algo = "qplex"
+    # algo = "qplex"
     # algo = "qmix_maic"  # team modeling may not work in matrix games
-    # algo = "qplex_maic"
+    algo = "qplex_maic"
 
     ### Step2: choose matrix (for convenience for representation, we flatten the matrix into a vector)
+    # ------- 2 player
     # payoff_flatten_vector= [1, 0, 0, 1]
     # payoff_flatten_vector=[8, 3, 2, -12, -13, -14, -12, -13, -14]
     # payoff_flatten_vector = [8, -12, -12, -12, 0, 0, -12, 0, 0]
     payoff_flatten_vector = [8, -12, -12, -12, 6, 0, -12, 0, 6]
     # payoff_flatten_vector = [20, 0, 0, 0, 12, 12, 0, 12, 12]
+    # ------- 3 player
     # payoff_flatten_vector = [8, -12, -12, -12, 0, 0, -12, 0, 0, -12, 0, 0, 0, 0, 0, 0, 0, 0, -12, 0, 0, 0, 0, 0, 0, 0,
     #                          0]
+    # ------- 4 player
+    # payoff_flatten_vector = [8, -12, -12, -12, 0, 0, -12, 0, 0, -12, 0, 0, 0, 0, 0, 0, 0, 0, -12, 0, 0, 0, 0, 0, 0, 0,
+    #                          0,
+    #                          -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    # ------- 5 player
+    # payoff_flatten_vector = [8, -12, -12, -12, 0, 0, -12, 0, 0, -12, 0, 0, 0, 0, 0, 0, 0, 0, -12, 0, 0, 0, 0, 0, 0, 0,
+    #                          0,
+    #                          -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    # ------- 6 player
+    # payoff_flatten_vector = [8, -12, -12, -12, 0, 0, -12, 0, 0, -12, 0, 0, 0, 0, 0, 0, 0, 0, -12, 0, 0, 0, 0, 0, 0, 0,
+    #                          0,
+    #                          -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          -12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    #                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
     ### Step3: choose other parameters, note that: action_num**agent_num = |payoff-matrix|
     action_num = 3
