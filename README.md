@@ -14,18 +14,17 @@ pip install -r requirements.txt
 ### 2. Results in Matrix Games 
 
 Train Algorithms (config names): 
-- Our solution（MAPSA???）
+
 - VDN（vdn, weighted_vdn）
 - QMIX（qmix)  
 - WQMIX（ow_qmix, cw_qmix）
 - Qtran（vdn_qtran, qmix_qtran）
 - Qplex（qplex）
-- [MAIC](https://github.com/mansicer/MAIC)（qmix_maic, maic_qplex）
+- [MAIC](https://github.com/mansicer/MAIC)（qmix_maic, qplex_maic）
 
 Train:
 
 ``` sh
-# python main.py --config=maic --env-config=one_step_matrix_game with env_args.map_name=one_step_matrix_game
 # Step1: choose alg
 # Step2: choose matrix
 # Step3: choose other parameters
@@ -77,18 +76,6 @@ predicted_values = [[8.00, 3.99, 4.06],
 Qplex
 ```
 predicted_values = [[3.94, -11.68, -11.74],
-                 [-11.68, 0.21, 0.14],
-                 [-11.75, 0.13, 3.97]]
-```
-
-qmix_maic
-```
-predicted_values = [[-11.13, -11.13, -11.13],
-                 [-11.13, 0, 0],
-                 [-11.13, 0, 0]]
-```
-```
-predicted_values = [[3.94, -11.68, -11.75],
                  [-11.68, 0.21, 0.14],
                  [-11.75, 0.13, 3.97]]
 ```
