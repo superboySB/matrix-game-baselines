@@ -84,4 +84,5 @@ predicted_values = [[3.94, -11.68, -11.74],
 
 ## Reference 
 
-【全网最佳入门知乎】请看田哥的拨云见日、剥丝抽茧式教学：https://zhuanlan.zhihu.com/p/421909836
+* 【全网最佳入门知乎】请看田哥的拨云见日、剥丝抽茧式教学：https://zhuanlan.zhihu.com/p/421909836
+* https://github.com/tjuHaoXiaotian/Qfamily_for_MatrixGame
